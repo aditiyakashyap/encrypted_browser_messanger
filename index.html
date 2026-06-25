@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GhostStream // Peer-to-Peer Encrypted Messaging</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <aside class="sidebar">
+            <div class="profile-section">
+                <div class="logo">GHOSTSTREAM</div>
+                <div class="my-id-container">
+                    <label>Your Anonymous ID</label>
+                    <div class="id-row">
+                        <span id="my-unique-id">Generating...</span>
+                        <button onclick="copyMyID()" title="Copy ID">Copy</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="navigation-tabs">
+                <button id="tab-chat" class="active" onclick="switchTab('chats')">Active Chats</button>
+                <button id="tab-contacts" onclick="switchTab('contacts')">Contact Book</button>
+            </div>
+
+            <div id="panel-chats" class="tab-panel active">
+                <div class="action-bar">
+                    <input type="text" id="connect-peer-id" placeholder="Enter Friend's ID...">
+                    <button onclick="requestPeerConnection()">Connect</button>
+                </div>
+                <ul id="active-chats-list" class="list-view">
+                    </ul>
+            </div>
+
+            <div id="panel-contacts" class="tab-panel">
+                <div class="action-bar vertical">
+                    <input type="text" id="new-contact-name" placeholder="Contact Name...">
+                    <input type="text" id="new-contact-id" placeholder="Contact Unique ID...">
+                    <button onclick="saveNewContact()" class="btn-block">Add to Local Contacts</button>
+                </div>
+                <ul id="contacts-list" class="list-view">
+                    </ul>
+            </div>
+        </aside>
+
+        <main class="chat-frame" id="chat-frame">
+            <div class="no-chat-selected" id="blank-slate">
+                <div class="slate-icon">🔒</div>
+                <h2>Zero-Knowledge P2P Portal</h2>
+                <p>Connect to a peer using their Unique ID. No historical footprints, logs, or server relay records exist.</p>
+            </div>
+
+            <div class="active-chat-container hidden" id="active-chat-view">
+                <header class="chat-header">
+                    <div>
+                        <h3 id="current-chat-name">Connecting...</h3>
+                        <span id="current-chat-id" class="sub-id">ID: ----</span>
+                    </div>
+                    <span class="secure-badge">E2EE Stream Active</span>
+                </header>
+
+                <div class="messages-window" id="messages-window">
+                    </div>
+
+                <div class="input-container">
+                    <input type="text" id="chat-input" placeholder="Type an encrypted message..." onkeydown="if(event.key==='Enter') sendChatMessage()">
+                    <button onclick="sendChatMessage()">Send</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="modal-overlay hidden" id="connection-modal">
+        <div class="modal">
+            <h3>Inbound Connection Request</h3>
+            <p>An external user is attempting to link directly into your client device database.</p>
+            <div class="peer-request-card">
+                <span class="label">Sender ID:</span>
+                <span id="incoming-peer-id" class="val">XXXX-XXXX-XXXX</span>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-deny" onclick="rejectIncomingConnection()">Deny Connection</button>
+                <button class="btn-allow" onclick="acceptIncomingConnection()">Allow & Open Stream</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
