@@ -15,8 +15,13 @@
                     <div class="pulse-dot"></div>
                     <h2>k-chat</h2>
                 </div>
-                <div class="my-id-card" onclick="toggleIDVisibility()" title="Tap to copy ID">
+                <div class="my-id-card">
                     <span id="my-unique-id" class="censored">***-***-***</span>
+                    <div class="id-actions">
+                        <button class="icon-btn-small" onclick="toggleIDVisibility()" title="Show/Hide ID">👁️</button>
+                        <button class="icon-btn-small" onclick="copyMyID()" title="Copy ID">📋</button>
+                        <button class="icon-btn-small" onclick="shareInvite()" title="Share Auto-Connect Link">🔗</button>
+                    </div>
                 </div>
             </header>
 
@@ -102,7 +107,31 @@
         </div>
     </div>
 
+    <div class="modal-overlay hidden" id="welcome-modal">
+        <div class="modal" style="max-width: 450px;">
+            <h3 style="font-size: 1.4rem; margin-bottom: 12px;">Welcome to k-chat 🔒</h3>
+            <p style="color: var(--text-secondary); margin-bottom: 20px;">A truly serverless, peer-to-peer secure messenger.</p>
+            
+            <ul class="info-list">
+                <li>🛡️ <strong>Zero Logs:</strong> We don't have a database. Your messages are mathematically impossible for us to read or store.</li>
+                <li>🔑 <strong>Military E2EE:</strong> Every payload is locked inside an AES-256 Vault directly on your device.</li>
+                <li>👻 <strong>Total Anonymity:</strong> No phone numbers, no emails, no accounts. Just your private cryptographic ID.</li>
+            </ul>
+
+            <h4 style="margin-top: 24px; margin-bottom: 10px;">How to Start:</h4>
+            <ol class="info-list" style="list-style-type: decimal;">
+                <li>Click the 🔗 icon next to your ID to send a direct invite link to a friend.</li>
+                <li>Or, click the <strong>+</strong> button and paste your friend's ID to connect.</li>
+                <li>Keep the tab open to ensure the secure tunnel remains active!</li>
+            </ol>
+
+            <div class="modal-actions" style="margin-top: 24px;">
+                <button class="btn-primary" style="width: 100%;" onclick="closeWelcomeModal()">Understood, Let's Chat</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-    <script src="app.js?v=5"></script>
+    <script src="app.js?v=7"></script>
 </body>
 </html>
