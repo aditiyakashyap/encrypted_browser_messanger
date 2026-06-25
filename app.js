@@ -3,8 +3,8 @@ let idVisible = false;
 let signalingBroker = null;
 let currentChatPeerId = null;
 
-// Local Memory (Now includes Contacts)
-let contacts = JSON.parse(localStorage.getItem('ghost_contacts')) || {};
+// Local Memory
+let contacts = JSON.parse(localStorage.getItem('kchat_contacts')) || {};
 let activeChats = []; 
 let cachedOffers = {};
 let sharedSecrets = {};
@@ -21,12 +21,12 @@ window.addEventListener('DOMContentLoaded', async () => {
 });
 
 function generateUserIdentity() {
-    let savedId = localStorage.getItem('ghost_my_id');
+    let savedId = localStorage.getItem('kchat_my_id');
     if (!savedId) {
         const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
         let segment = () => Array.from({length: 4}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
         savedId = `${segment()}-${segment()}-${segment()}`;
-        localStorage.setItem('ghost_my_id', savedId);
+        localStorage.setItem('kchat_my_id', savedId);
     }
     myId = savedId;
 }
@@ -47,7 +47,7 @@ function promptRenameContact() {
         } else {
             contacts[currentChatPeerId] = newName.trim();
         }
-        localStorage.setItem('ghost_contacts', JSON.stringify(contacts));
+        localStorage.setItem('kchat_contacts', JSON.stringify(contacts));
         document.getElementById('current-chat-name').innerText = getAlias(currentChatPeerId);
         updateSidebarUI();
     }
@@ -69,7 +69,7 @@ async function deriveAESKey(peerPublicKeyJWK, peerId) {
 
 function initializeRelaySystem() {
     signalingBroker = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
-    signalingBroker.on('connect', () => signalingBroker.subscribe(`ghoststream/chat/${myId}`));
+    signalingBroker.on('connect', () => signalingBroker.subscribe(`kchat/signal/${myId}`));
 
     signalingBroker.on('message', async (topic, payload) => {
         const packet = JSON.parse(payload.toString());
@@ -80,12 +80,11 @@ function initializeRelaySystem() {
         } else if (packet.type === 'accept') {
             await deriveAESKey(packet.pubKey, packet.sender);
             trackActiveChatSession(packet.sender);
-            openActiveChatView(packet.sender, "Secure Tunnel Active");
+            openActiveChatView(packet.sender, "Online");
         } else if (packet.type === 'message') {
             if (!sharedSecrets[packet.sender]) return;
             try {
                 const decryptedText = await decryptMessage(packet.cipher, packet.iv, packet.sender);
-                // Parse the internal payload
                 const payloadData = JSON.parse(decryptedText);
                 
                 if (currentChatPeerId === packet.sender) {
@@ -99,25 +98,25 @@ function initializeRelaySystem() {
 
 function requestPeerConnection() {
     const peerId = document.getElementById('connect-peer-id').value.trim();
-    if (!peerId || peerId === myId) return alert("Invalid Target Node.");
+    if (!peerId || peerId === myId) return alert("Invalid Contact ID.");
 
     closeNewChatModal();
     currentChatPeerId = peerId;
 
-    signalingBroker.publish(`ghoststream/chat/${peerId}`, JSON.stringify({ type: 'request', sender: myId, pubKey: localPublicKeyJWK }));
+    signalingBroker.publish(`kchat/signal/${peerId}`, JSON.stringify({ type: 'request', sender: myId, pubKey: localPublicKeyJWK }));
     trackActiveChatSession(peerId);
-    openActiveChatView(peerId, "Awaiting handshake...");
+    openActiveChatView(peerId, "Waiting for peer to accept...");
 }
 
 async function handleAllow() {
     const senderId = currentChatPeerId;
     await deriveAESKey(cachedOffers[senderId], senderId);
     
-    signalingBroker.publish(`ghoststream/chat/${senderId}`, JSON.stringify({ type: 'accept', sender: myId, pubKey: localPublicKeyJWK }));
+    signalingBroker.publish(`kchat/signal/${senderId}`, JSON.stringify({ type: 'accept', sender: myId, pubKey: localPublicKeyJWK }));
 
     delete cachedOffers[senderId];
     trackActiveChatSession(senderId);
-    openActiveChatView(senderId, "Secure Tunnel Active");
+    openActiveChatView(senderId, "Online");
 }
 
 function handleDeny() {
@@ -127,15 +126,13 @@ function handleDeny() {
     switchView('view-blank');
 }
 
-// Media Handling via Base64
 function setupMediaListener() {
     document.getElementById('media-input').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
         
-        // Size Limit: 1MB (To respect public MQTT payload limits)
         if (file.size > 1024 * 1024) {
-            alert("File exceeds 1MB secure relay limit. Compress before sending.");
+            alert("Image exceeds 1MB. Please compress before sending.");
             this.value = '';
             return;
         }
@@ -144,13 +141,12 @@ function setupMediaListener() {
         reader.onload = async function(event) {
             const base64Data = event.target.result;
             await sendSecureMessage('image', base64Data);
-            this.value = ''; // Reset input
+            this.value = ''; 
         };
         reader.readAsDataURL(file);
     });
 }
 
-// Encryption & Decryption
 async function encryptMessage(text, peerId) {
     const key = sharedSecrets[peerId];
     const iv = window.crypto.getRandomValues(new Uint8Array(12));
@@ -165,7 +161,6 @@ async function decryptMessage(cipherArray, ivArray, peerId) {
     return new TextDecoder().decode(decryptedBuffer);
 }
 
-// Unified Send Function (Text & Media)
 async function sendSecureMessage(type, explicitContent = null) {
     let content = explicitContent;
     const inputField = document.getElementById('chat-input');
@@ -175,13 +170,12 @@ async function sendSecureMessage(type, explicitContent = null) {
         if (!content) return;
     }
 
-    if (!currentChatPeerId || !sharedSecrets[currentChatPeerId]) return alert("Secure tunnel not active.");
+    if (!currentChatPeerId || !sharedSecrets[currentChatPeerId]) return alert("Not connected to peer.");
 
-    // We package the type and content together inside the encrypted vault
     const internalPayload = JSON.stringify({ msgType: type, content: content });
     const encryptedPayload = await encryptMessage(internalPayload, currentChatPeerId);
 
-    signalingBroker.publish(`ghoststream/chat/${currentChatPeerId}`, JSON.stringify({
+    signalingBroker.publish(`kchat/signal/${currentChatPeerId}`, JSON.stringify({
         type: 'message', sender: myId, cipher: encryptedPayload.cipher, iv: encryptedPayload.iv
     }));
 
@@ -189,7 +183,6 @@ async function sendSecureMessage(type, explicitContent = null) {
     if (type === 'text') inputField.value = '';
 }
 
-// UI Rendering
 function toggleIDVisibility() {
     const idSpan = document.getElementById('my-unique-id');
     idVisible = !idVisible;
@@ -221,7 +214,7 @@ function renderChatList() {
     Object.keys(cachedOffers).forEach(senderId => {
         const li = document.createElement('li');
         li.className = 'chat-item pending';
-        li.innerHTML = `<div class="avatar" style="background: #f59e0b;">?</div><div class="details"><span class="title">${getAlias(senderId)}</span><span class="subtitle">Action Required</span></div>`;
+        li.innerHTML = `<div class="avatar" style="background: #f59e0b;">?</div><div class="details"><span class="title">${getAlias(senderId)}</span><span class="subtitle">Pending Request</span></div>`;
         li.onclick = () => openPendingRequestView(senderId);
         list.appendChild(li);
     });
@@ -230,11 +223,11 @@ function renderChatList() {
         const li = document.createElement('li');
         li.className = 'chat-item';
         const alias = getAlias(id);
-        li.innerHTML = `<div class="avatar">${alias.charAt(0).toUpperCase()}</div><div class="details"><span class="title">${alias}</span><span class="subtitle">Tunnel Ready</span></div>`;
+        li.innerHTML = `<div class="avatar">${alias.charAt(0).toUpperCase()}</div><div class="details"><span class="title">${alias}</span><span class="subtitle">Tap to chat</span></div>`;
         li.onclick = () => {
             if (currentChatPeerId !== id) {
                 currentChatPeerId = id;
-                openActiveChatView(id, sharedSecrets[id] ? "Secure Tunnel Active" : "Session Expired");
+                openActiveChatView(id, sharedSecrets[id] ? "Online" : "Disconnected");
             }
         };
         list.appendChild(li);
