@@ -3,7 +3,6 @@ let idVisible = false;
 let signalingBroker = null;
 let currentChatPeerId = null;
 
-// Local Memory
 let contacts = JSON.parse(localStorage.getItem('kchat_contacts')) || {};
 let activeChats = []; 
 let cachedOffers = {};
@@ -14,12 +13,27 @@ let localPublicKeyJWK = null;
 
 window.addEventListener('DOMContentLoaded', async () => {
     generateUserIdentity();
+    checkWelcomeModal();
     await initializeCrypto();
     initializeRelaySystem();
     updateSidebarUI();
     setupMediaListener();
+    handleDeepLinkConnections(); // Check if URL has a connection request
 });
 
+// --- Welcome Modal Logic ---
+function checkWelcomeModal() {
+    if (!localStorage.getItem('kchat_onboarded')) {
+        document.getElementById('welcome-modal').classList.remove('hidden');
+    }
+}
+
+function closeWelcomeModal() {
+    localStorage.setItem('kchat_onboarded', 'true');
+    document.getElementById('welcome-modal').classList.add('hidden');
+}
+
+// --- ID Controls (Manual Toggle, Copy, Share) ---
 function generateUserIdentity() {
     let savedId = localStorage.getItem('kchat_my_id');
     if (!savedId) {
@@ -31,10 +45,52 @@ function generateUserIdentity() {
     myId = savedId;
 }
 
-// Contacts Management
-function getAlias(id) {
-    return contacts[id] || id;
+function toggleIDVisibility() {
+    const idSpan = document.getElementById('my-unique-id');
+    idVisible = !idVisible;
+    if (idVisible) {
+        idSpan.innerText = myId;
+        idSpan.classList.remove('censored');
+    } else {
+        idSpan.innerText = "***-***-***";
+        idSpan.classList.add('censored');
+    }
 }
+
+function copyMyID() {
+    navigator.clipboard.writeText(myId);
+    alert("Your ID was copied to the clipboard!");
+}
+
+function shareInvite() {
+    const url = window.location.origin + window.location.pathname + '?connect=' + myId;
+    const text = `Let's chat securely on k-chat! Click this link to auto-connect with me: \n\n${url}`;
+    
+    if (navigator.share) {
+        navigator.share({ title: 'k-chat Secure Invite', text: text }).catch(console.error);
+    } else {
+        navigator.clipboard.writeText(text);
+        alert("Auto-connect link copied to clipboard! Paste it to your friend.");
+    }
+}
+
+// --- Auto-Connect Deep Linking ---
+function handleDeepLinkConnections() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const connectId = urlParams.get('connect');
+    
+    if (connectId && connectId !== myId) {
+        setTimeout(() => {
+            document.getElementById('connect-peer-id').value = connectId;
+            requestPeerConnection();
+            // Clean the URL so it doesn't re-trigger if they refresh the page
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }, 1500); // 1.5s delay ensures crypto engine & broker are fully online first
+    }
+}
+
+// --- Core Networking & Crypto (Unchanged) ---
+function getAlias(id) { return contacts[id] || id; }
 
 function promptRenameContact() {
     if (!currentChatPeerId) return;
@@ -42,11 +98,9 @@ function promptRenameContact() {
     const newName = prompt(`Enter a contact name for ${currentChatPeerId}:`, currentName);
     
     if (newName !== null) {
-        if (newName.trim() === "") {
-            delete contacts[currentChatPeerId];
-        } else {
-            contacts[currentChatPeerId] = newName.trim();
-        }
+        if (newName.trim() === "") delete contacts[currentChatPeerId];
+        else contacts[currentChatPeerId] = newName.trim();
+        
         localStorage.setItem('kchat_contacts', JSON.stringify(contacts));
         document.getElementById('current-chat-name').innerText = getAlias(currentChatPeerId);
         updateSidebarUI();
@@ -68,8 +122,19 @@ async function deriveAESKey(peerPublicKeyJWK, peerId) {
 }
 
 function initializeRelaySystem() {
-    signalingBroker = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
-    signalingBroker.on('connect', () => signalingBroker.subscribe(`kchat/signal/${myId}`));
+    const brokerUrl = 'wss://broker.hivemq.com:8884/mqtt';
+    signalingBroker = mqtt.connect(brokerUrl, { keepalive: 30, reconnectPeriod: 2000, clean: true });
+
+    signalingBroker.on('connect', () => {
+        signalingBroker.subscribe(`kchat/signal/${myId}`);
+        if (currentChatPeerId && sharedSecrets[currentChatPeerId]) {
+            document.getElementById('current-chat-status').innerText = "Online";
+        }
+    });
+
+    signalingBroker.on('offline', () => {
+        if (currentChatPeerId) document.getElementById('current-chat-status').innerText = "Reconnecting to network...";
+    });
 
     signalingBroker.on('message', async (topic, payload) => {
         const packet = JSON.parse(payload.toString());
@@ -130,18 +195,12 @@ function setupMediaListener() {
     document.getElementById('media-input').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
-        
-        if (file.size > 1024 * 1024) {
-            alert("Image exceeds 1MB. Please compress before sending.");
-            this.value = '';
-            return;
-        }
+        if (file.size > 1024 * 1024) return alert("Image exceeds 1MB. Please compress before sending.");
 
         const reader = new FileReader();
         reader.onload = async function(event) {
-            const base64Data = event.target.result;
-            await sendSecureMessage('image', base64Data);
-            this.value = ''; 
+            await sendSecureMessage('image', event.target.result);
+            document.getElementById('media-input').value = ''; 
         };
         reader.readAsDataURL(file);
     });
@@ -150,8 +209,7 @@ function setupMediaListener() {
 async function encryptMessage(text, peerId) {
     const key = sharedSecrets[peerId];
     const iv = window.crypto.getRandomValues(new Uint8Array(12));
-    const encodedText = new TextEncoder().encode(text);
-    const cipherBuffer = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, encodedText);
+    const cipherBuffer = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, new TextEncoder().encode(text));
     return { cipher: Array.from(new Uint8Array(cipherBuffer)), iv: Array.from(iv) };
 }
 
@@ -181,17 +239,6 @@ async function sendSecureMessage(type, explicitContent = null) {
 
     renderBubble(content, 'sent', type);
     if (type === 'text') inputField.value = '';
-}
-
-function toggleIDVisibility() {
-    const idSpan = document.getElementById('my-unique-id');
-    idVisible = !idVisible;
-    if (idVisible) {
-        idSpan.innerText = myId;
-        idSpan.classList.remove('censored');
-        navigator.clipboard.writeText(myId);
-        setTimeout(() => { idVisible = false; idSpan.innerText = "***-***-***"; idSpan.classList.add('censored'); }, 3000);
-    }
 }
 
 function updateSidebarUI() {
