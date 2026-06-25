@@ -1,15 +1,14 @@
-// --- Global State & Cryptography ---
 let myId = "";
 let idVisible = false;
 let signalingBroker = null;
 let currentChatPeerId = null;
 
-// Local Memory
+// Local Memory (Now includes Contacts)
+let contacts = JSON.parse(localStorage.getItem('ghost_contacts')) || {};
 let activeChats = []; 
-let cachedOffers = {}; // Stores pending requests and their Public Keys
-let sharedSecrets = {}; // Stores AES keys mapped to Peer IDs
+let cachedOffers = {};
+let sharedSecrets = {};
 
-// ECDH Key Pair for this session
 let localKeyPair = null;
 let localPublicKeyJWK = null;
 
@@ -18,9 +17,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     await initializeCrypto();
     initializeRelaySystem();
     updateSidebarUI();
+    setupMediaListener();
 });
 
-// --- 1. Identity & Cryptography Engine ---
 function generateUserIdentity() {
     let savedId = localStorage.getItem('ghost_my_id');
     if (!savedId) {
@@ -32,181 +31,165 @@ function generateUserIdentity() {
     myId = savedId;
 }
 
+// Contacts Management
+function getAlias(id) {
+    return contacts[id] || id;
+}
+
+function promptRenameContact() {
+    if (!currentChatPeerId) return;
+    const currentName = contacts[currentChatPeerId] || "";
+    const newName = prompt(`Enter a contact name for ${currentChatPeerId}:`, currentName);
+    
+    if (newName !== null) {
+        if (newName.trim() === "") {
+            delete contacts[currentChatPeerId];
+        } else {
+            contacts[currentChatPeerId] = newName.trim();
+        }
+        localStorage.setItem('ghost_contacts', JSON.stringify(contacts));
+        document.getElementById('current-chat-name').innerText = getAlias(currentChatPeerId);
+        updateSidebarUI();
+    }
+}
+
 async function initializeCrypto() {
-    // Generate an Elliptic Curve keypair for secure key exchange
-    localKeyPair = await window.crypto.subtle.generateKey(
-        { name: "ECDH", namedCurve: "P-256" },
-        true,
-        ["deriveKey"]
-    );
+    localKeyPair = await window.crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey"]);
     localPublicKeyJWK = await window.crypto.subtle.exportKey("jwk", localKeyPair.publicKey);
 }
 
 async function deriveAESKey(peerPublicKeyJWK, peerId) {
-    // Import the peer's public key
-    const peerKey = await window.crypto.subtle.importKey(
-        "jwk",
-        peerPublicKeyJWK,
-        { name: "ECDH", namedCurve: "P-256" },
-        true,
-        []
-    );
-    // Mix our private key with their public key to create a shared AES secret
+    const peerKey = await window.crypto.subtle.importKey("jwk", peerPublicKeyJWK, { name: "ECDH", namedCurve: "P-256" }, true, []);
     const sharedSecret = await window.crypto.subtle.deriveKey(
-        { name: "ECDH", public: peerKey },
-        localKeyPair.privateKey,
-        { name: "AES-GCM", length: 256 },
-        true,
-        ["encrypt", "decrypt"]
+        { name: "ECDH", public: peerKey }, localKeyPair.privateKey,
+        { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]
     );
     sharedSecrets[peerId] = sharedSecret;
 }
 
-// --- 2. The Blind Relay (Standard Internet Transmission) ---
 function initializeRelaySystem() {
-    // Using a reliable public broker over standard port 443/8443/8084 WebSockets
     signalingBroker = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
-    
-    signalingBroker.on('connect', () => {
-        signalingBroker.subscribe(`ghoststream/chat/${myId}`);
-    });
+    signalingBroker.on('connect', () => signalingBroker.subscribe(`ghoststream/chat/${myId}`));
 
     signalingBroker.on('message', async (topic, payload) => {
         const packet = JSON.parse(payload.toString());
         
         if (packet.type === 'request') {
-            // Incoming connection request (Contains their Public Key)
             cachedOffers[packet.sender] = packet.pubKey;
             updateSidebarUI();
-
         } else if (packet.type === 'accept') {
-            // Peer accepted our request (Contains their Public Key)
             await deriveAESKey(packet.pubKey, packet.sender);
             trackActiveChatSession(packet.sender);
-            openActiveChatView(packet.sender, "Secure Link Established");
-
-        } else if (packet.type === 'deny') {
-            alert("Connection request was denied by the peer.");
-            resetCommunicationEngine();
-
+            openActiveChatView(packet.sender, "Secure Tunnel Active");
         } else if (packet.type === 'message') {
-            // Incoming Encrypted Message
-            if (!sharedSecrets[packet.sender]) return; // Drop if we don't have the key
-            
+            if (!sharedSecrets[packet.sender]) return;
             try {
                 const decryptedText = await decryptMessage(packet.cipher, packet.iv, packet.sender);
+                // Parse the internal payload
+                const payloadData = JSON.parse(decryptedText);
+                
                 if (currentChatPeerId === packet.sender) {
-                    renderBubble(decryptedText, 'received');
-                } else {
-                    // If chat isn't open, just track that they are active
-                    trackActiveChatSession(packet.sender);
+                    renderBubble(payloadData.content, 'received', payloadData.msgType);
                 }
-            } catch (err) {
-                console.error("Decryption failed. Unrecognized payload.");
-            }
+                trackActiveChatSession(packet.sender);
+            } catch (err) { console.error("Decryption failed."); }
         }
     });
 }
 
-// --- 3. Connection Handshakes ---
 function requestPeerConnection() {
     const peerId = document.getElementById('connect-peer-id').value.trim();
-    if (!peerId || peerId === myId) return alert("Invalid Peer ID.");
+    if (!peerId || peerId === myId) return alert("Invalid Target Node.");
 
     closeNewChatModal();
     currentChatPeerId = peerId;
 
-    // Send connection request + our public key
-    signalingBroker.publish(`ghoststream/chat/${peerId}`, JSON.stringify({
-        type: 'request',
-        sender: myId,
-        pubKey: localPublicKeyJWK
-    }));
-
+    signalingBroker.publish(`ghoststream/chat/${peerId}`, JSON.stringify({ type: 'request', sender: myId, pubKey: localPublicKeyJWK }));
     trackActiveChatSession(peerId);
-    openActiveChatView(peerId, "Waiting for peer to accept...");
+    openActiveChatView(peerId, "Awaiting handshake...");
 }
 
 async function handleAllow() {
     const senderId = currentChatPeerId;
-    const peerPubKey = cachedOffers[senderId];
+    await deriveAESKey(cachedOffers[senderId], senderId);
     
-    // Derive AES key from their public key
-    await deriveAESKey(peerPubKey, senderId);
-
-    // Tell them we accepted, and send our public key back
-    signalingBroker.publish(`ghoststream/chat/${senderId}`, JSON.stringify({
-        type: 'accept',
-        sender: myId,
-        pubKey: localPublicKeyJWK
-    }));
+    signalingBroker.publish(`ghoststream/chat/${senderId}`, JSON.stringify({ type: 'accept', sender: myId, pubKey: localPublicKeyJWK }));
 
     delete cachedOffers[senderId];
     trackActiveChatSession(senderId);
-    openActiveChatView(senderId, "Secure Link Established");
+    openActiveChatView(senderId, "Secure Tunnel Active");
 }
 
 function handleDeny() {
-    if(!currentChatPeerId) return;
-    signalingBroker.publish(`ghoststream/chat/${currentChatPeerId}`, JSON.stringify({
-        type: 'deny',
-        sender: myId
-    }));
     delete cachedOffers[currentChatPeerId];
     currentChatPeerId = null;
     updateSidebarUI();
     switchView('view-blank');
 }
 
-// --- 4. Encryption & Messaging ---
+// Media Handling via Base64
+function setupMediaListener() {
+    document.getElementById('media-input').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        // Size Limit: 1MB (To respect public MQTT payload limits)
+        if (file.size > 1024 * 1024) {
+            alert("File exceeds 1MB secure relay limit. Compress before sending.");
+            this.value = '';
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = async function(event) {
+            const base64Data = event.target.result;
+            await sendSecureMessage('image', base64Data);
+            this.value = ''; // Reset input
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+// Encryption & Decryption
 async function encryptMessage(text, peerId) {
     const key = sharedSecrets[peerId];
     const iv = window.crypto.getRandomValues(new Uint8Array(12));
     const encodedText = new TextEncoder().encode(text);
-    
-    const cipherBuffer = await window.crypto.subtle.encrypt(
-        { name: "AES-GCM", iv: iv },
-        key,
-        encodedText
-    );
-    
-    return {
-        cipher: Array.from(new Uint8Array(cipherBuffer)),
-        iv: Array.from(iv)
-    };
+    const cipherBuffer = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, encodedText);
+    return { cipher: Array.from(new Uint8Array(cipherBuffer)), iv: Array.from(iv) };
 }
 
 async function decryptMessage(cipherArray, ivArray, peerId) {
     const key = sharedSecrets[peerId];
-    const decryptedBuffer = await window.crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: new Uint8Array(ivArray) },
-        key,
-        new Uint8Array(cipherArray)
-    );
+    const decryptedBuffer = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(ivArray) }, key, new Uint8Array(cipherArray));
     return new TextDecoder().decode(decryptedBuffer);
 }
 
-async function sendChatMessage() {
-    const input = document.getElementById('chat-input');
-    const msgText = input.value.trim();
-    if (!msgText || !currentChatPeerId || !sharedSecrets[currentChatPeerId]) return;
+// Unified Send Function (Text & Media)
+async function sendSecureMessage(type, explicitContent = null) {
+    let content = explicitContent;
+    const inputField = document.getElementById('chat-input');
 
-    // Encrypt the message locally
-    const encryptedPayload = await encryptMessage(msgText, currentChatPeerId);
+    if (type === 'text') {
+        content = inputField.value.trim();
+        if (!content) return;
+    }
 
-    // Send the locked vault via the blind relay
+    if (!currentChatPeerId || !sharedSecrets[currentChatPeerId]) return alert("Secure tunnel not active.");
+
+    // We package the type and content together inside the encrypted vault
+    const internalPayload = JSON.stringify({ msgType: type, content: content });
+    const encryptedPayload = await encryptMessage(internalPayload, currentChatPeerId);
+
     signalingBroker.publish(`ghoststream/chat/${currentChatPeerId}`, JSON.stringify({
-        type: 'message',
-        sender: myId,
-        cipher: encryptedPayload.cipher,
-        iv: encryptedPayload.iv
+        type: 'message', sender: myId, cipher: encryptedPayload.cipher, iv: encryptedPayload.iv
     }));
 
-    renderBubble(msgText, 'sent');
-    input.value = '';
+    renderBubble(content, 'sent', type);
+    if (type === 'text') inputField.value = '';
 }
 
-// --- 5. UI Logic (Unchanged from previous WhatsApp Design) ---
+// UI Rendering
 function toggleIDVisibility() {
     const idSpan = document.getElementById('my-unique-id');
     idVisible = !idVisible;
@@ -214,11 +197,7 @@ function toggleIDVisibility() {
         idSpan.innerText = myId;
         idSpan.classList.remove('censored');
         navigator.clipboard.writeText(myId);
-        setTimeout(() => {
-            idVisible = false;
-            idSpan.innerText = "***-***-***";
-            idSpan.classList.add('censored');
-        }, 3000);
+        setTimeout(() => { idVisible = false; idSpan.innerText = "***-***-***"; idSpan.classList.add('censored'); }, 3000);
     }
 }
 
@@ -226,16 +205,11 @@ function updateSidebarUI() {
     const promptBox = document.getElementById('empty-state-prompt');
     const chatList = document.getElementById('chat-list');
     const fab = document.getElementById('fab-new-chat');
-    const hasChats = activeChats.length > 0 || Object.keys(cachedOffers).length > 0;
-
-    if (!hasChats) {
-        promptBox.classList.remove('hidden');
-        chatList.classList.add('hidden');
-        fab.classList.add('hidden');
+    
+    if (activeChats.length === 0 && Object.keys(cachedOffers).length === 0) {
+        promptBox.classList.remove('hidden'); chatList.classList.add('hidden'); fab.classList.add('hidden');
     } else {
-        promptBox.classList.add('hidden');
-        chatList.classList.remove('hidden');
-        fab.classList.remove('hidden');
+        promptBox.classList.add('hidden'); chatList.classList.remove('hidden'); fab.classList.remove('hidden');
         renderChatList();
     }
 }
@@ -247,7 +221,7 @@ function renderChatList() {
     Object.keys(cachedOffers).forEach(senderId => {
         const li = document.createElement('li');
         li.className = 'chat-item pending';
-        li.innerHTML = `<div class="avatar" style="background-color: #f59e0b;">?</div><div class="details"><span class="title">${senderId}</span><span class="subtitle">Incoming connection request</span></div>`;
+        li.innerHTML = `<div class="avatar" style="background: #f59e0b;">?</div><div class="details"><span class="title">${getAlias(senderId)}</span><span class="subtitle">Action Required</span></div>`;
         li.onclick = () => openPendingRequestView(senderId);
         list.appendChild(li);
     });
@@ -255,11 +229,12 @@ function renderChatList() {
     activeChats.forEach(id => {
         const li = document.createElement('li');
         li.className = 'chat-item';
-        li.innerHTML = `<div class="avatar" style="background-color: #6366f1;">${id.charAt(0)}</div><div class="details"><span class="title">${id}</span><span class="subtitle">Tap to chat</span></div>`;
+        const alias = getAlias(id);
+        li.innerHTML = `<div class="avatar">${alias.charAt(0).toUpperCase()}</div><div class="details"><span class="title">${alias}</span><span class="subtitle">Tunnel Ready</span></div>`;
         li.onclick = () => {
             if (currentChatPeerId !== id) {
                 currentChatPeerId = id;
-                openActiveChatView(id, sharedSecrets[id] ? "Online" : "Session Expired");
+                openActiveChatView(id, sharedSecrets[id] ? "Secure Tunnel Active" : "Session Expired");
             }
         };
         list.appendChild(li);
@@ -267,10 +242,7 @@ function renderChatList() {
 }
 
 function trackActiveChatSession(id) {
-    if (!activeChats.includes(id)) {
-        activeChats.push(id);
-        updateSidebarUI();
-    }
+    if (!activeChats.includes(id)) { activeChats.push(id); updateSidebarUI(); }
 }
 
 function switchView(viewId) {
@@ -280,29 +252,32 @@ function switchView(viewId) {
 
 function openPendingRequestView(senderId) {
     currentChatPeerId = senderId;
-    document.getElementById('pending-peer-id').innerText = senderId;
+    document.getElementById('pending-peer-id').innerText = getAlias(senderId);
     switchView('view-pending');
 }
 
 function openActiveChatView(peerId, status) {
-    document.getElementById('current-chat-name').innerText = peerId;
+    const alias = getAlias(peerId);
+    document.getElementById('current-chat-name').innerText = alias;
+    document.getElementById('chat-avatar').innerText = alias.charAt(0).toUpperCase();
     document.getElementById('current-chat-status').innerText = status;
     document.getElementById('messages-window').innerHTML = ''; 
     switchView('view-chat');
 }
 
-function renderBubble(text, direction) {
+function renderBubble(content, direction, type) {
     const window = document.getElementById('messages-window');
     const bubble = document.createElement('div');
     bubble.className = `bubble ${direction}`;
-    bubble.innerText = text;
+    
+    if (type === 'text') {
+        bubble.innerText = content;
+    } else if (type === 'image') {
+        bubble.innerHTML = `<img src="${content}" class="media-img" onclick="window.open('${content}')">`;
+    }
+    
     window.appendChild(bubble);
     window.scrollTop = window.scrollHeight;
-}
-
-function resetCommunicationEngine() {
-    currentChatPeerId = null;
-    switchView('view-blank');
 }
 
 function openNewChatModal() { document.getElementById('new-chat-modal').classList.remove('hidden'); }
