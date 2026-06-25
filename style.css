@@ -138,3 +138,22 @@ body {
 .tooltip .tooltiptext { visibility: hidden; width: 140px; background-color: var(--bg-hover); color: #fff; text-align: center; border-radius: 6px; padding: 5px; position: absolute; z-index: 1; bottom: 125%; left: 50%; margin-left: -70px; font-size: 0.75rem; border: 1px solid var(--border); opacity: 0; transition: opacity 0.3s; }
 .tooltip:hover .tooltiptext { visibility: visible; opacity: 1; }
 .hidden { display: none !important; }
+/* ID Card New Actions */
+.my-id-card {
+    background-color: var(--bg-main);
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.id-actions { display: flex; gap: 4px; }
+.icon-btn-small { background: none; border: none; font-size: 1.1rem; cursor: pointer; color: var(--text-secondary); transition: 0.2s; padding: 4px; border-radius: 4px; }
+.icon-btn-small:hover { color: var(--accent); background-color: var(--bg-hover); }
+
+/* Information & Onboarding Lists */
+.info-list { margin: 0; padding-left: 20px; color: var(--text-secondary); line-height: 1.6; font-size: 0.95rem;}
+.info-list li { margin-bottom: 10px; }
+.info-list strong { color: var(--text-primary); }
