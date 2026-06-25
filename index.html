@@ -16,10 +16,13 @@
                     <h2>k-chat</h2>
                 </div>
                 <div class="my-id-card" onclick="toggleIDVisibility()" title="Tap to copy ID">
-                    <span class="id-label">MY ID</span>
                     <span id="my-unique-id" class="censored">***-***-***</span>
                 </div>
             </header>
+
+            <div class="search-bar-container">
+                <input type="text" id="search-input" placeholder="Search chats...">
+            </div>
 
             <div class="chat-list-container">
                 <div id="empty-state-prompt" class="empty-state">
@@ -39,7 +42,7 @@
                 <div class="blank-content">
                     <div class="shield-icon">🔒</div>
                     <h2>k-chat Web</h2>
-                    <p>End-to-end encrypted messaging. All data remains on your device.</p>
+                    <p>End-to-end encrypted messaging.<br>All data remains on your device.</p>
                 </div>
             </div>
 
@@ -80,7 +83,7 @@
                     <button class="icon-btn tooltip" onclick="document.getElementById('media-input').click()">
                         📎 <span class="tooltiptext">Attach Image (Max 1MB)</span>
                     </button>
-                    <input type="text" id="chat-input" placeholder="Type a message..." onkeydown="if(event.key==='Enter') sendSecureMessage('text')">
+                    <input type="text" id="chat-input" placeholder="Type a message..." autocomplete="off" onkeydown="if(event.key==='Enter') sendSecureMessage('text')">
                     <button class="icon-btn send-btn" onclick="sendSecureMessage('text')">➤</button>
                 </div>
             </div>
@@ -91,7 +94,7 @@
         <div class="modal">
             <h3>New Chat</h3>
             <p class="modal-sub">Enter your contact's ID to connect.</p>
-            <input type="text" id="connect-peer-id" placeholder="XXXX-XXXX-XXXX">
+            <input type="text" id="connect-peer-id" placeholder="XXXX-XXXX-XXXX" autocomplete="off">
             <div class="modal-actions">
                 <button class="btn-ghost" onclick="closeNewChatModal()">Cancel</button>
                 <button class="btn-primary" onclick="requestPeerConnection()">Connect</button>
@@ -100,6 +103,6 @@
     </div>
 
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-    <script src="app.js?v=4"></script>
+    <script src="app.js?v=5"></script>
 </body>
 </html>
