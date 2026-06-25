@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GhostStream // Secure Environment</title>
+    <title>k-chat // Secure Messenger</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,19 +13,19 @@
             <header class="sidebar-header">
                 <div class="logo-area">
                     <div class="pulse-dot"></div>
-                    <h2>GhostStream</h2>
+                    <h2>k-chat</h2>
                 </div>
                 <div class="my-id-card" onclick="toggleIDVisibility()" title="Tap to copy ID">
-                    <span class="id-label">IDENTITY NODE</span>
+                    <span class="id-label">MY ID</span>
                     <span id="my-unique-id" class="censored">***-***-***</span>
                 </div>
             </header>
 
             <div class="chat-list-container">
                 <div id="empty-state-prompt" class="empty-state">
-                    <div class="empty-icon">⚲</div>
-                    <p>No active tunnels.</p>
-                    <button class="btn-primary" onclick="openNewChatModal()">Initialize Connection</button>
+                    <div class="empty-icon">💬</div>
+                    <p>No active chats.</p>
+                    <button class="btn-primary" onclick="openNewChatModal()">New Chat</button>
                 </div>
                 <ul id="chat-list" class="list-view hidden"></ul>
             </div>
@@ -37,9 +37,9 @@
             
             <div id="view-blank" class="view-pane active-view default-bg">
                 <div class="blank-content">
-                    <div class="shield-icon">🛡️</div>
-                    <h2>End-to-End Encrypted Sandbox</h2>
-                    <p>All data remains on local memory. Tunnels are ephemeral.</p>
+                    <div class="shield-icon">🔒</div>
+                    <h2>k-chat Web</h2>
+                    <p>End-to-end encrypted messaging. All data remains on your device.</p>
                 </div>
             </div>
 
@@ -47,11 +47,11 @@
                 <div class="pending-action-area">
                     <div class="pending-card">
                         <div class="avatar large">?</div>
-                        <h3 id="pending-peer-id">Unknown ID</h3>
-                        <p>Incoming P2P tunnel request detected.</p>
+                        <h3 id="pending-peer-id">Unknown Contact</h3>
+                        <p>Incoming connection request.</p>
                         <div class="action-buttons">
-                            <button class="btn-deny" onclick="handleDeny()">Reject</button>
-                            <button class="btn-allow" onclick="handleAllow()">Establish Tunnel</button>
+                            <button class="btn-deny" onclick="handleDeny()">Decline</button>
+                            <button class="btn-allow" onclick="handleAllow()">Accept</button>
                         </div>
                     </div>
                 </div>
@@ -62,13 +62,13 @@
                     <div class="chat-title-area">
                         <div class="avatar" id="chat-avatar"></div>
                         <div class="chat-info">
-                            <h3 id="current-chat-name" style="cursor: pointer;" onclick="promptRenameContact()" title="Tap to rename">Connecting...</h3>
-                            <span id="current-chat-status">negotiating keys...</span>
+                            <h3 id="current-chat-name" style="cursor: pointer;" onclick="promptRenameContact()" title="Tap to rename contact">Connecting...</h3>
+                            <span id="current-chat-status">connecting...</span>
                         </div>
                     </div>
                     <div class="header-actions">
                         <button class="btn-outline" onclick="promptRenameContact()">Save Contact</button>
-                        <span class="secure-badge">AES-256</span>
+                        <span class="secure-badge">E2EE</span>
                     </div>
                 </header>
 
@@ -78,10 +78,10 @@
                     <input type="file" id="media-input" accept="image/png, image/jpeg, image/gif" style="display: none;">
                     
                     <button class="icon-btn tooltip" onclick="document.getElementById('media-input').click()">
-                        📎 <span class="tooltiptext">Attach Media (Max 1MB)</span>
+                        📎 <span class="tooltiptext">Attach Image (Max 1MB)</span>
                     </button>
-                    <input type="text" id="chat-input" placeholder="Transmit secure payload..." onkeydown="if(event.key==='Enter') sendSecureMessage('text')">
-                    <button class="icon-btn send-btn" onclick="sendSecureMessage('text')">🚀</button>
+                    <input type="text" id="chat-input" placeholder="Type a message..." onkeydown="if(event.key==='Enter') sendSecureMessage('text')">
+                    <button class="icon-btn send-btn" onclick="sendSecureMessage('text')">➤</button>
                 </div>
             </div>
         </main>
@@ -89,17 +89,17 @@
 
     <div class="modal-overlay hidden" id="new-chat-modal">
         <div class="modal">
-            <h3>Deploy Tunnel</h3>
-            <p class="modal-sub">Input target Identity Node ID.</p>
+            <h3>New Chat</h3>
+            <p class="modal-sub">Enter your contact's ID to connect.</p>
             <input type="text" id="connect-peer-id" placeholder="XXXX-XXXX-XXXX">
             <div class="modal-actions">
-                <button class="btn-ghost" onclick="closeNewChatModal()">Abort</button>
-                <button class="btn-primary" onclick="requestPeerConnection()">Execute</button>
+                <button class="btn-ghost" onclick="closeNewChatModal()">Cancel</button>
+                <button class="btn-primary" onclick="requestPeerConnection()">Connect</button>
             </div>
         </div>
     </div>
 
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-    <script src="app.js?v=3"></script>
+    <script src="app.js?v=4"></script>
 </body>
 </html>
