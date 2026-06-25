@@ -1,23 +1,22 @@
 // Global State & Core Properties
 let myId = "";
+let idVisible = false;
 let signalingBroker = null;
 let activePeerConnection = null;
 let activeDataChannel = null;
 let currentChatPeerId = null;
 
-// Local Memory Repositories (Persisted per device via localStorage)
-let contacts = JSON.parse(localStorage.getItem('ghost_contacts')) || {};
+// Local Memory Repositories
 let activeChats = []; 
-let cachedOffers = {};
+let cachedOffers = {}; // Stores pending requests
 
 const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-// --- Initialize App Mechanics ---
+// --- Initialization ---
 window.addEventListener('DOMContentLoaded', () => {
     generateUserIdentity();
     initializeSignalingSystem();
-    renderContactBook();
-    renderActiveChatsList();
+    updateSidebarUI();
 });
 
 function generateUserIdentity() {
@@ -29,16 +28,28 @@ function generateUserIdentity() {
         localStorage.setItem('ghost_my_id', savedId);
     }
     myId = savedId;
-    document.getElementById('my-unique-id').innerText = myId;
 }
 
-// --- Blind Signaling Mesh Layer (MQTT over WebSockets) ---
-function initializeSignalingSystem() {
-    // Connects to a highly scalable, public, completely zero-log MQTT broker as a transport line
-    signalingBroker = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
+function toggleIDVisibility() {
+    const idSpan = document.getElementById('my-unique-id');
+    idVisible = !idVisible;
+    if (idVisible) {
+        idSpan.innerText = myId;
+        idSpan.classList.remove('censored');
+        navigator.clipboard.writeText(myId);
+        // Briefly show it, then hide it again
+        setTimeout(() => {
+            idVisible = false;
+            idSpan.innerText = "***-***-***";
+            idSpan.classList.add('censored');
+        }, 3000);
+    }
+}
 
+// --- MQTT Signaling ---
+function initializeSignalingSystem() {
+    signalingBroker = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
     signalingBroker.on('connect', () => {
-        // Subscribe to our own personal ID stream to receive incoming handshakes
         signalingBroker.subscribe(`ghoststream/signal/${myId}`);
     });
 
@@ -46,68 +57,145 @@ function initializeSignalingSystem() {
         const signalData = JSON.parse(payload.toString());
         
         if (signalData.type === 'offer') {
+            // Received an incoming request
             cachedOffers[signalData.sender] = signalData.sdp;
-            showInboundRequestModal(signalData.sender);
+            updateSidebarUI(); // Triggers the chat list to show the pending request
         } else if (signalData.type === 'answer') {
             if (activePeerConnection) {
                 await activePeerConnection.setRemoteDescription(new RTCSessionDescription(signalData.sdp));
             }
         } else if (signalData.type === 'deny') {
-            alert("The connection request was denied by the peer.");
+            alert("The connection request was denied.");
             resetCommunicationEngine();
         }
     });
 }
 
-// --- Outbound Connection Logic (Alice -> Bob) ---
+// --- Outbound Flow (Alice -> Bob) ---
 async function requestPeerConnection() {
     const peerId = document.getElementById('connect-peer-id').value.trim();
-    if (!peerId || peerId === myId) return alert("Please enter a valid third-party Peer ID.");
+    if (!peerId || peerId === myId) return alert("Invalid Peer ID.");
 
+    closeNewChatModal();
     currentChatPeerId = peerId;
     setupWebRTCEngine(peerId);
 
-    // Create the DataChannel configuration
     activeDataChannel = activePeerConnection.createDataChannel("chat-stream");
     bindDataChannelEvents(activeDataChannel);
 
     const offer = await activePeerConnection.createOffer();
     await activePeerConnection.setLocalDescription(offer);
 
-    // Broadcast network offer parameters targeting the specific peer channel
     signalingBroker.publish(`ghoststream/signal/${peerId}`, JSON.stringify({
         type: 'offer',
         sender: myId,
         sdp: offer
     }));
 
-    openChatView(peerId);
-    document.getElementById('current-chat-name').innerText = getContactAlias(peerId);
-    document.getElementById('current-chat-id').innerText = `Connecting with ${peerId}...`;
+    trackActiveChatSession(peerId);
+    openActiveChatView(peerId, "Connecting...");
 }
 
-// --- Inbound Connection Flow Control (Bob evaluation) ---
-function showInboundRequestModal(senderId) {
-    document.getElementById('incoming-peer-id').innerText = senderId;
-    document.getElementById('connection-modal').classList.remove('hidden');
+// --- UI Sidebar Logic (WhatsApp Flow) ---
+function updateSidebarUI() {
+    const promptBox = document.getElementById('empty-state-prompt');
+    const chatList = document.getElementById('chat-list');
+    const fab = document.getElementById('fab-new-chat');
+
+    const hasChats = activeChats.length > 0 || Object.keys(cachedOffers).length > 0;
+
+    if (!hasChats) {
+        promptBox.classList.remove('hidden');
+        chatList.classList.add('hidden');
+        fab.classList.add('hidden');
+    } else {
+        promptBox.classList.add('hidden');
+        chatList.classList.remove('hidden');
+        fab.classList.remove('hidden');
+        renderChatList();
+    }
 }
 
-function rejectIncomingConnection() {
-    const senderId = document.getElementById('incoming-peer-id').innerText;
-    document.getElementById('connection-modal').classList.add('hidden');
-    
-    signalingBroker.publish(`ghoststream/signal/${senderId}`, JSON.stringify({
+function renderChatList() {
+    const list = document.getElementById('chat-list');
+    list.innerHTML = '';
+
+    // 1. Render Pending Requests first
+    Object.keys(cachedOffers).forEach(senderId => {
+        const li = document.createElement('li');
+        li.className = 'chat-item pending';
+        li.innerHTML = `
+            <div class="avatar" style="background-color: #f59e0b;">?</div>
+            <div class="details">
+                <span class="title">${senderId}</span>
+                <span class="subtitle">Incoming connection request</span>
+            </div>
+        `;
+        li.onclick = () => openPendingRequestView(senderId);
+        list.appendChild(li);
+    });
+
+    // 2. Render Active Chats
+    activeChats.forEach(id => {
+        const li = document.createElement('li');
+        li.className = 'chat-item';
+        li.innerHTML = `
+            <div class="avatar" style="background-color: #6366f1;">${id.charAt(0)}</div>
+            <div class="details">
+                <span class="title">${id}</span>
+                <span class="subtitle">Tap to chat</span>
+            </div>
+        `;
+        li.onclick = () => {
+            if (currentChatPeerId !== id) {
+                alert("Reconnect required to switch encrypted context.");
+            }
+        };
+        list.appendChild(li);
+    });
+}
+
+function trackActiveChatSession(id) {
+    if (!activeChats.includes(id)) {
+        activeChats.push(id);
+        updateSidebarUI();
+    }
+}
+
+// --- View Switching (Right Pane) ---
+function switchView(viewId) {
+    document.querySelectorAll('.view-pane').forEach(el => el.classList.remove('active-view'));
+    document.getElementById(viewId).classList.add('active-view');
+}
+
+function openPendingRequestView(senderId) {
+    currentChatPeerId = senderId;
+    document.getElementById('pending-peer-id').innerText = senderId;
+    switchView('view-pending');
+}
+
+function openActiveChatView(peerId, status) {
+    document.getElementById('current-chat-name').innerText = peerId;
+    document.getElementById('current-chat-status').innerText = status;
+    document.getElementById('messages-window').innerHTML = ''; // clear previous
+    switchView('view-chat');
+}
+
+// --- Inbound Action Handlers ---
+function handleDeny() {
+    if(!currentChatPeerId) return;
+    signalingBroker.publish(`ghoststream/signal/${currentChatPeerId}`, JSON.stringify({
         type: 'deny',
         sender: myId
     }));
-    delete cachedOffers[senderId];
+    delete cachedOffers[currentChatPeerId];
+    currentChatPeerId = null;
+    updateSidebarUI();
+    switchView('view-blank');
 }
 
-async function acceptIncomingConnection() {
-    const senderId = document.getElementById('incoming-peer-id').innerText;
-    document.getElementById('connection-modal').classList.add('hidden');
-
-    currentChatPeerId = senderId;
+async function handleAllow() {
+    const senderId = currentChatPeerId;
     setupWebRTCEngine(senderId);
 
     activePeerConnection.ondatachannel = (event) => {
@@ -128,27 +216,19 @@ async function acceptIncomingConnection() {
     }));
 
     delete cachedOffers[senderId];
-    openChatView(senderId);
     trackActiveChatSession(senderId);
+    openActiveChatView(senderId, "Secure Link Established");
 }
 
-// --- WebRTC Protocol Configurations ---
+// --- WebRTC Logic ---
 function setupWebRTCEngine(peerId) {
     activePeerConnection = new RTCPeerConnection(rtcConfig);
-
-    activePeerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-            // Local collection handles streaming initialization inside SDP payloads directly
-        }
-    };
-
+    activePeerConnection.onicecandidate = (e) => { /* handled internally */ };
     activePeerConnection.onconnectionstatechange = () => {
         if (activePeerConnection.connectionState === 'connected') {
-            document.getElementById('current-chat-id').innerText = `Direct P2P Link Established`;
-            trackActiveChatSession(peerId);
+            document.getElementById('current-chat-status').innerText = 'Online';
         } else if (['failed', 'closed', 'disconnected'].includes(activePeerConnection.connectionState)) {
-            alert("P2P Communication link severed.");
-            resetCommunicationEngine();
+            document.getElementById('current-chat-status').innerText = 'Disconnected';
         }
     };
 }
@@ -160,7 +240,6 @@ function bindDataChannelEvents(channel) {
     };
 }
 
-// --- Data Delivery & UI Messaging Pipeline ---
 function sendChatMessage() {
     const input = document.getElementById('chat-input');
     const msgText = input.value.trim();
@@ -180,90 +259,14 @@ function renderBubble(text, direction) {
     window.scrollTop = window.scrollHeight;
 }
 
-// --- Contact Management & LocalStorage Repositories ---
-function saveNewContact() {
-    const name = document.getElementById('new-contact-name').value.trim();
-    const id = document.getElementById('new-contact-id').value.trim();
-
-    if (!name || !id) return alert("Please enter both a contact name and a unique ID.");
-
-    contacts[id] = name;
-    localStorage.setItem('ghost_contacts', JSON.stringify(contacts));
-    
-    document.getElementById('new-contact-name').value = '';
-    document.getElementById('new-contact-id').value = '';
-    
-    renderContactBook();
-    alert("Contact committed to device local memory storage.");
-}
-
-function renderContactBook() {
-    const list = document.getElementById('contacts-list');
-    list.innerHTML = '';
-    
-    Object.keys(contacts).forEach(id => {
-        const li = document.createElement('li');
-        li.className = 'list-item';
-        li.innerHTML = `<span class="title">${contacts[id]}</span><span class="subtitle">${id}</span>`;
-        li.onclick = () => {
-            document.getElementById('connect-peer-id').value = id;
-            switchTab('chats');
-        };
-        list.appendChild(li);
-    });
-}
-
-function trackActiveChatSession(id) {
-    if (!activeChats.includes(id)) {
-        activeChats.push(id);
-        renderActiveChatsList();
-    }
-}
-
-function renderActiveChatsList() {
-    const list = document.getElementById('active-chats-list');
-    list.innerHTML = '';
-
-    activeChats.forEach(id => {
-        const li = document.createElement('li');
-        li.className = 'list-item';
-        li.innerHTML = `<span class="title">${getContactAlias(id)}</span><span class="subtitle">${id}</span>`;
-        li.onclick = () => {
-            if (currentChatPeerId === id) return;
-            alert("To context-switch to this session, reconnect via structural verification parameters.");
-        };
-        list.appendChild(li);
-    });
-}
-
-// --- Interface Helper Utilities ---
-function getContactAlias(id) { return contacts[id] || "Anonymous Peer"; }
-
-function openChatView(peerId) {
-    document.getElementById('blank-slate').classList.add('hidden');
-    document.getElementById('active-chat-view').classList.remove('hidden');
-    document.getElementById('current-chat-name').innerText = getContactAlias(peerId);
-    document.getElementById('current-chat-id').innerText = `ID: ${peerId}`;
-    document.getElementById('messages-window').innerHTML = '';
-}
-
 function resetCommunicationEngine() {
     if (activePeerConnection) activePeerConnection.close();
     activePeerConnection = null;
     activeDataChannel = null;
     currentChatPeerId = null;
-    document.getElementById('blank-slate').classList.remove('hidden');
-    document.getElementById('active-chat-view').classList.add('hidden');
+    switchView('view-blank');
 }
 
-function switchTab(target) {
-    document.getElementById('tab-chat').className = target === 'chats' ? 'active' : '';
-    document.getElementById('tab-contacts').className = target === 'contacts' ? 'active' : '';
-    document.getElementById('panel-chats').className = target === 'chats' ? 'tab-panel active' : 'tab-panel';
-    document.getElementById('panel-contacts').className = target === 'contacts' ? 'tab-panel active' : 'tab-panel';
-}
-
-function copyMyID() {
-    navigator.clipboard.writeText(myId);
-    alert("Your unique connection ID has been copied to the clipboard.");
-}
+// --- Modals ---
+function openNewChatModal() { document.getElementById('new-chat-modal').classList.remove('hidden'); }
+function closeNewChatModal() { document.getElementById('new-chat-modal').classList.add('hidden'); }
