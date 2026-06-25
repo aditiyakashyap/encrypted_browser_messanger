@@ -3,39 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GhostStream // Secure Messenger</title>
+    <title>GhostStream // Secure Environment</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
     <div class="app-container">
-        
         <aside class="sidebar">
             <header class="sidebar-header">
-                <div class="profile-area">
-                    <div class="avatar" style="background-color: #00a884;">Me</div>
-                    <div class="my-id-container" onclick="toggleIDVisibility()" title="Tap to reveal and copy ID">
-                        <span class="label">My ID</span>
-                        <span id="my-unique-id" class="censored">***-***-***</span>
-                    </div>
+                <div class="logo-area">
+                    <div class="pulse-dot"></div>
+                    <h2>GhostStream</h2>
+                </div>
+                <div class="my-id-card" onclick="toggleIDVisibility()" title="Tap to copy ID">
+                    <span class="id-label">IDENTITY NODE</span>
+                    <span id="my-unique-id" class="censored">***-***-***</span>
                 </div>
             </header>
 
-            <div class="search-bar-container">
-                <input type="text" id="search-input" placeholder="Search chats...">
-            </div>
-
             <div class="chat-list-container">
                 <div id="empty-state-prompt" class="empty-state">
-                    <div class="empty-icon">💬</div>
-                    <p>No active chats.</p>
-                    <button onclick="openNewChatModal()">Connect with a Friend</button>
+                    <div class="empty-icon">⚲</div>
+                    <p>No active tunnels.</p>
+                    <button class="btn-primary" onclick="openNewChatModal()">Initialize Connection</button>
                 </div>
-
-                <ul id="chat-list" class="list-view hidden">
-                    </ul>
+                <ul id="chat-list" class="list-view hidden"></ul>
             </div>
-
+            
             <button id="fab-new-chat" class="fab hidden" onclick="openNewChatModal()">+</button>
         </aside>
 
@@ -43,28 +37,21 @@
             
             <div id="view-blank" class="view-pane active-view default-bg">
                 <div class="blank-content">
-                    <h2>GhostStream Web</h2>
-                    <p>Send and receive messages without server logs.<br>End-to-end encrypted peer-to-peer tunnels.</p>
+                    <div class="shield-icon">🛡️</div>
+                    <h2>End-to-End Encrypted Sandbox</h2>
+                    <p>All data remains on local memory. Tunnels are ephemeral.</p>
                 </div>
             </div>
 
             <div id="view-pending" class="view-pane default-bg">
-                <header class="chat-header">
-                    <div class="chat-title-area">
-                        <div class="avatar">?</div>
-                        <div class="chat-info">
-                            <h3 id="pending-peer-id">Unknown Contact</h3>
-                            <span>Incoming connection request</span>
-                        </div>
-                    </div>
-                </header>
                 <div class="pending-action-area">
                     <div class="pending-card">
-                        <h3>Connection Request</h3>
-                        <p>This user wants to establish a secure P2P tunnel with your device.</p>
+                        <div class="avatar large">?</div>
+                        <h3 id="pending-peer-id">Unknown ID</h3>
+                        <p>Incoming P2P tunnel request detected.</p>
                         <div class="action-buttons">
-                            <button class="btn-deny" onclick="handleDeny()">Deny</button>
-                            <button class="btn-allow" onclick="handleAllow()">Allow</button>
+                            <button class="btn-deny" onclick="handleDeny()">Reject</button>
+                            <button class="btn-allow" onclick="handleAllow()">Establish Tunnel</button>
                         </div>
                     </div>
                 </div>
@@ -73,22 +60,28 @@
             <div id="view-chat" class="view-pane default-bg">
                 <header class="chat-header">
                     <div class="chat-title-area">
-                        <div class="avatar" id="chat-avatar" style="background-color: #6366f1;">U</div>
+                        <div class="avatar" id="chat-avatar"></div>
                         <div class="chat-info">
-                            <h3 id="current-chat-name">Connecting...</h3>
-                            <span id="current-chat-status">establishing secure tunnel</span>
+                            <h3 id="current-chat-name" style="cursor: pointer;" onclick="promptRenameContact()" title="Tap to rename">Connecting...</h3>
+                            <span id="current-chat-status">negotiating keys...</span>
                         </div>
                     </div>
-                    <span class="secure-badge">🔒 E2EE</span>
+                    <div class="header-actions">
+                        <button class="btn-outline" onclick="promptRenameContact()">Save Contact</button>
+                        <span class="secure-badge">AES-256</span>
+                    </div>
                 </header>
 
-                <div class="messages-window" id="messages-window">
-                    </div>
+                <div class="messages-window" id="messages-window"></div>
 
                 <div class="input-container">
-                    <button class="icon-btn">📎</button>
-                    <input type="text" id="chat-input" placeholder="Type a message" onkeydown="if(event.key==='Enter') sendChatMessage()">
-                    <button class="icon-btn send-btn" onclick="sendChatMessage()">➤</button>
+                    <input type="file" id="media-input" accept="image/png, image/jpeg, image/gif" style="display: none;">
+                    
+                    <button class="icon-btn tooltip" onclick="document.getElementById('media-input').click()">
+                        📎 <span class="tooltiptext">Attach Media (Max 1MB)</span>
+                    </button>
+                    <input type="text" id="chat-input" placeholder="Transmit secure payload..." onkeydown="if(event.key==='Enter') sendSecureMessage('text')">
+                    <button class="icon-btn send-btn" onclick="sendSecureMessage('text')">🚀</button>
                 </div>
             </div>
         </main>
@@ -96,17 +89,17 @@
 
     <div class="modal-overlay hidden" id="new-chat-modal">
         <div class="modal">
-            <h3>New Chat</h3>
-            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 16px;">Enter your friend's Unique ID to establish a connection.</p>
-            <input type="text" id="connect-peer-id" placeholder="Paste Peer ID here..." style="width: 100%; margin-bottom: 16px; box-sizing: border-box;">
-            <div class="modal-actions" style="justify-content: flex-end; display: flex; gap: 10px;">
-                <button class="btn-ghost" onclick="closeNewChatModal()">Cancel</button>
-                <button class="btn-allow" onclick="requestPeerConnection()">Connect</button>
+            <h3>Deploy Tunnel</h3>
+            <p class="modal-sub">Input target Identity Node ID.</p>
+            <input type="text" id="connect-peer-id" placeholder="XXXX-XXXX-XXXX">
+            <div class="modal-actions">
+                <button class="btn-ghost" onclick="closeNewChatModal()">Abort</button>
+                <button class="btn-primary" onclick="requestPeerConnection()">Execute</button>
             </div>
         </div>
     </div>
 
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-   <script src="app.js?v=2"></script>
+    <script src="app.js?v=3"></script>
 </body>
 </html>
